@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <opencv2/opencv.hpp>
-using namespace cv;
+
 int main(int argc, char** argv )
 {
     if ( argc != 2 )
@@ -8,15 +8,16 @@ int main(int argc, char** argv )
         printf("usage: DisplayImage.out <Image_Path>\n");
         return -1;
     }
-    Mat image;
-    image = imread( argv[1], 1 );
-    if ( !image.data )
+    cv::Mat colorMat, greyMat;
+    colorMat = cv::imread( argv[1], 1 );
+    if ( !colorMat.data )
     {
         printf("No image data \n");
         return -1;
     }
-    namedWindow("Display Image", WINDOW_AUTOSIZE );
-    imshow("Display Image", image);
-    waitKey(0);
+	cv::cvtColor(colorMat, greyMat, cv::COLOR_BGR2GRAY);
+    cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+    cv::imshow("Display Image", greyMat);
+    cv::waitKey(0);
     return 0;
 }
