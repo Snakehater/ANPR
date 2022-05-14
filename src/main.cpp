@@ -3,11 +3,40 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <main.hpp>
+#include <tesseract/baseapi.h>
+#include <leptonica/allheaders.h>
 
 #define MIN_AR 1        // Minimum aspect ratio
 #define MAX_AR 6        // Maximum aspect ratio
 #define KEEP 5          // Limit the number of license plates
 #define RECT_DIFF 2000  // Set the difference between contour and rectangle
+
+
+int ocr_test() {
+	char *outText;
+
+	tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI();
+	// Initialize tesseract-ocr with English, without specifying tessdata path
+	if (api->Init(NULL, "swe")) {
+		fprintf(stderr, "Could not initialize tesseract.\n");
+		exit(1);
+	}
+
+	// Open input image with leptonica library
+	Pix *image = pixRead("../../../Downloads/krockad.jpg");
+	api->SetImage(image);
+	// Get OCR result
+	outText = api->GetUTF8Text();
+	printf("OCR output:\n%s", outText);
+
+	// Destroy used object and release memory
+	api->End();
+	delete api;
+	delete [] outText;
+	pixDestroy(&image);
+
+	return 0;
+}
 
 
 int main(int argc, char** argv )
@@ -28,7 +57,6 @@ int main(int argc, char** argv )
 
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
 	drawCandidates(image, candidates);
-
 
 	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
 	cv::imshow("Display Image", image);
@@ -57,7 +85,7 @@ void drawCandidates(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candida
 	rectangles.erase(std::remove_if(rectangles.begin(), rectangles.end(), [](cv::Rect temp) {
 				const float aspect_ratio = temp.width / (float) temp.height; // calculate aspect ration
 				return aspect_ratio < MIN_AR || aspect_ratio > MAX_AR; // if aspect ratio is outside allowed range, remove it
-			}), rectangles.end());
+				}), rectangles.end());
 
 
 	// Draw the bounding box of the possible numberplate
