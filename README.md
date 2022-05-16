@@ -14,7 +14,7 @@ git clone git@github.com:Snakehater/ANPR.git
 
 ### Install requirements:
 `
-sudo pacman -S opencv tesseract leptunica
+sudo pacman -S opencv tesseract leptonica
 `
 
 ## Setup for linux
