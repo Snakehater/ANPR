@@ -21,7 +21,7 @@ struct {
 	bool debug = false;
 } FLAGS;
 
-int ocr_test() {
+int run_ocr(cv::Mat input) {
 	char *outText;
 
 	tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI();
@@ -31,9 +31,12 @@ int ocr_test() {
 		exit(1);
 	}
 
+	// Pass image data to tesseract
+	api->SetImage((uchar*)input.data, input.size().width, input.size().height, input.channels(), input.step1());
+
 	// Open input image with leptonica library
-	Pix *image = pixRead("../../../Downloads/krockad.jpg");
-	api->SetImage(image);
+	// Pix *image = pixRead("debug/13-crop.jpg");
+	// api->SetImage(image);
 	// Get OCR result
 	outText = api->GetUTF8Text();
 	printf("OCR output:\n%s", outText);
@@ -42,7 +45,7 @@ int ocr_test() {
 	api->End();
 	delete api;
 	delete [] outText;
-	pixDestroy(&image);
+	// pixDestroy(&image);
 
 	return 0;
 }
@@ -91,16 +94,33 @@ void extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates
 	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
 	const float ratio_height = height / (float) 512;  // Aspect ratio may affect the performance
 
-	std::cout << "number of candidates are " << candidates.size() << std::endl;
-	int i = 0;
+	// Convert to rectangle and also filter out the non-rectangle-shape.
+	std::vector<cv::Rect> rectangles;
 	for (std::vector<cv::Point> currentCandidate : candidates) {
-		for (cv::Point p : currentCandidate) {
-			cv::Point new_p = cv::Point(p.x * ratio_width, p.y * ratio_height);
-			cv::Scalar color = cv::Scalar(0, (25*i)&255, (255-25*i)&255);
-			cv::circle(frame, new_p, 4, color);
+		cv::Rect boundingRect = cv::boundingRect(currentCandidate); // Create a rect around our candidate
+		float difference = boundingRect.area() - cv::contourArea(currentCandidate); // Get the difference in area between bouding rect and the area of the countour of the candidate
+		if (difference < RECT_DIFF) { // If those two areas are similar enough, candidate is probably a rectangle
+			rectangles.push_back(boundingRect); // Add it to possible number plates
 		}
-		i++;
 	}
+
+	// Remove rectangle with wrong aspect ratio.
+	rectangles.erase(std::remove_if(rectangles.begin(), rectangles.end(), [](cv::Rect temp) {
+				const float aspect_ratio = temp.width / (float) temp.height; // calculate aspect ration
+				return aspect_ratio < MIN_AR || aspect_ratio > MAX_AR; // if aspect ratio is outside allowed range, remove it
+				}), rectangles.end());
+	
+	std::cout << "Found " << rectangles.size() << " candidates:" << std::endl;
+	for (cv::Rect rect : rectangles) {
+		cv::Range cols(rect.x * ratio_width, (rect.x + rect.width) * ratio_width);
+		cv::Range rows(rect.y * ratio_height, (rect.y + rect.height) * ratio_height);
+		cv::Mat crop = frame(rows, cols);
+		debug_img("crop", crop);
+
+		std::cout << run_ocr(crop) << std::endl;
+	}
+	return;
+
 }
 
 void drawCandidates(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
@@ -130,6 +150,17 @@ void drawCandidates(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candida
 	for (cv::Rect rectangle : rectangles) {
 		cv::Scalar color = cv::Scalar(255, 0, 0); // Blue Green Red, BGR
 		cv::rectangle(frame, cv::Point(rectangle.x * ratio_width, rectangle.y * ratio_height), cv::Point((rectangle.x + rectangle.width) * ratio_width, (rectangle.y + rectangle.height) * ratio_height), color, 3, cv::LINE_8, 0);
+	}
+
+	// Print circles
+	int i = 0;
+	for (std::vector<cv::Point> currentCandidate : candidates) {
+		for (cv::Point p : currentCandidate) {
+			cv::Point new_p = cv::Point(p.x * ratio_width, p.y * ratio_height);
+			cv::Scalar color = cv::Scalar(0, (25*i)&255, (255-25*i)&255);
+			cv::circle(frame, new_p, 4, color);
+		}
+		i++;
 	}
 }
 
