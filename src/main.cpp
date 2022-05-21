@@ -11,6 +11,15 @@
 #define KEEP 5          // Limit the number of license plates
 #define RECT_DIFF 2000  // Set the difference between contour and rectangle
 
+// Macros
+void debug_img(const char* name, cv::Mat &img);
+void extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
+
+int debug_imgs_cnt = 0;
+
+struct {
+	bool debug = false;
+} FLAGS;
 
 int ocr_test() {
 	char *outText;
@@ -41,10 +50,16 @@ int ocr_test() {
 
 int main(int argc, char** argv )
 {
-	if ( argc != 2 )
+	if ( argc < 2 )
 	{
 		printf("usage: DisplayImage.out <Image_Path>\n");
 		return -1;
+	}
+	if (argc > 2) {
+		if (strcmp(argv[2], "--debug")) {
+			FLAGS.debug = true;
+			std::cout << "Debug mode is on, will output debug files" << std::endl;
+		}
 	}
 	cv::Mat image;
 
@@ -56,13 +71,36 @@ int main(int argc, char** argv )
 	}
 
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
+	extract_reg(image, candidates);
 	drawCandidates(image, candidates);
 
+/*j
 	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
 	cv::imshow("Display Image", image);
 	cv::waitKey(0);
+	*/
+
+	debug_img("done", image);
 
 	return 0;
+}
+
+void extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
+	const int width = frame.cols;
+	const int height = frame.rows;
+	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
+	const float ratio_height = height / (float) 512;  // Aspect ratio may affect the performance
+
+	std::cout << "number of candidates are " << candidates.size() << std::endl;
+	int i = 0;
+	for (std::vector<cv::Point> currentCandidate : candidates) {
+		for (cv::Point p : currentCandidate) {
+			cv::Point new_p = cv::Point(p.x * ratio_width, p.y * ratio_height);
+			cv::Scalar color = cv::Scalar(0, (25*i)&255, (255-25*i)&255);
+			cv::circle(frame, new_p, 4, color);
+		}
+		i++;
+	}
 }
 
 void drawCandidates(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
@@ -95,26 +133,53 @@ void drawCandidates(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candida
 	}
 }
 
+void debug_img(const char* name, cv::Mat &img) {
+	if (FLAGS.debug) {
+		/* Create image path */
+		std::string 	path  = "debug/";
+				path += std::to_string(debug_imgs_cnt);
+				path += "-";
+				path += name;
+				path += ".jpg";
+		imwrite(path, img);
+		debug_imgs_cnt++;
+	}
+}
+
 std::vector<std::vector<cv::Point>> locateCandidates(cv::Mat &frame) {
 	// Reduce the image dimension to process
 	cv::Mat processedFrame = frame;
 	cv::resize(frame, processedFrame, cv::Size(512, 512));
+
+	debug_img("start", processedFrame);
 
 	// Must be converted to grayscale
 	if (frame.channels() == 3) {
 		cv::cvtColor(processedFrame, processedFrame, cv::COLOR_BGR2GRAY);
 	}
 
+	debug_img("grayscale", processedFrame);
+
+	// Remove islands, especially the eu country character such as "s" for sweden or "hr" for croatia. Otherwise this will mess with the rectangle
+	cv::Mat largerKernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(4, 4));
+	cv::morphologyEx(processedFrame, processedFrame, cv::MORPH_OPEN, largerKernel);
+
+	debug_img("removed_island", processedFrame);
+
 	// Perform blackhat morphological operation, reveal dark regions on light backgrounds
 	cv::Mat blackhatFrame;
 	cv::Mat rectangleKernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(13, 5)); // Shapes are set 13 pixels wide by 5 pixels tall
 	cv::morphologyEx(processedFrame, blackhatFrame, cv::MORPH_BLACKHAT, rectangleKernel);
+	
+	debug_img("morphological_opt", blackhatFrame);
 
 	// Find license plate based on whiteness property
 	cv::Mat lightFrame;
 	cv::Mat squareKernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
 	cv::morphologyEx(processedFrame, lightFrame, cv::MORPH_CLOSE, squareKernel);
 	cv::threshold(lightFrame, lightFrame, 0, 255, cv::THRESH_OTSU);
+
+	debug_img("white_regions", lightFrame);
 
 	// Compute Sobel gradient representation from blackhat using 32 float,
 	// and then convert it back to normal [0, 255] single channel
@@ -127,19 +192,29 @@ std::vector<std::vector<cv::Point>> locateCandidates(cv::Mat &frame) {
 	gradX = 255 * ((gradX - minVal) / (maxVal - minVal));
 	gradX.convertTo(gradX, CV_8U);
 
+	debug_img("sobel", gradX);
+
 	// Blur the gradient result, and apply closing operation
 	cv::GaussianBlur(gradX, gradX, cv::Size(5,5), 0);
+	debug_img("blur", gradX);
 	cv::morphologyEx(gradX, gradX, cv::MORPH_CLOSE, rectangleKernel);
+	debug_img("morph", gradX);
 	cv::threshold(gradX, gradX, 0, 255, cv::THRESH_OTSU);
+
+	debug_img("thres", gradX);
 
 	// Erode and dilate
 	cv::erode(gradX, gradX, 2);
 	cv::dilate(gradX, gradX, 2);
 
+	debug_img("erode_dilate", gradX);
+
 	// Bitwise AND between threshold result and light regions
 	cv::bitwise_and(gradX, gradX, lightFrame);
 	cv::dilate(gradX, gradX, 2);
 	cv::erode(gradX, gradX, 1);
+
+	debug_img("bitwise_AND", gradX);
 
 	// Find contours in the thresholded image and sort by size
 	std::vector<std::vector<cv::Point>> contours;

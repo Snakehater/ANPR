@@ -22,3 +22,13 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/samples/001.jpg
     COPYONLY
 )
+
+# This will create a directory for debug material at runtime, ie when running make
+add_custom_target(build-time-make-directory ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory debug)
+
+add_custom_target(run
+    COMMAND rm -rf debug/* && ./main ../samples/002.jpg --verbose
+    DEPENDS main
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
