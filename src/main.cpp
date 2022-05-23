@@ -13,7 +13,8 @@
 
 // Macros
 void debug_img(const char* name, cv::Mat &img);
-void extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
+std::vector<std::string> extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
+std::vector<std::string> _split(std::string s, std::string delimiter, bool avoid_double);
 
 int debug_imgs_cnt = 0;
 
@@ -21,7 +22,7 @@ struct {
 	bool debug = false;
 } FLAGS;
 
-int run_ocr(cv::Mat input) {
+void run_ocr(cv::Mat input, std::string &answer) {
 	char *outText;
 
 	tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI();
@@ -39,15 +40,13 @@ int run_ocr(cv::Mat input) {
 	// api->SetImage(image);
 	// Get OCR result
 	outText = api->GetUTF8Text();
-	printf("OCR output:\n%s", outText);
+	answer = outText;
 
 	// Destroy used object and release memory
 	api->End();
 	delete api;
 	delete [] outText;
 	// pixDestroy(&image);
-
-	return 0;
 }
 
 
@@ -74,21 +73,65 @@ int main(int argc, char** argv )
 	}
 
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
-	extract_reg(image, candidates);
+	std::vector<std::string> regs = extract_reg(image, candidates);
+	std::cout << "Plates found: " << std::endl;
+	for (std::string s : regs)
+		std::cout << "- " << s << std::endl;
 	drawCandidates(image, candidates);
 
-/*j
-	cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
-	cv::imshow("Display Image", image);
-	cv::waitKey(0);
-	*/
+	/*j
+	  cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+	  cv::imshow("Display Image", image);
+	  cv::waitKey(0);
+	 */
 
 	debug_img("done", image);
 
 	return 0;
 }
 
-void extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
+bool valid_chars(std::string &s) {
+	for (char c : s) {
+		if (!(	(c >= '0' && c <= '9') ||
+			(c >= 'A' && c <= 'Z')
+		     ))
+			return false;
+	}
+	return true;
+}
+
+void parse_answer(std::string answer, std::string &answer_parsed) {
+	std::vector<std::string> answer_arr = _split(answer, " ", true);
+
+	/* Sometimes the plate is devided into two parts by a blank space, remove it */
+	for (int i = 0; i < answer_arr.size(); i++) {
+		answer_arr[i].erase(std::remove(answer_arr[i].begin(), answer_arr[i].end(), ' '), answer_arr[i].end()); //remove A from string
+	}
+	
+	/* In case result has new lines, remove them */
+	for (int i = 0; i < answer_arr.size(); i++) {
+		answer_arr[i].erase(std::remove(answer_arr[i].begin(), answer_arr[i].end(), '\n'), answer_arr[i].end()); //remove A from string
+	}
+	
+	/* Remove element that doesn't have three characters */
+	answer_arr.erase(std::remove_if(answer_arr.begin(), answer_arr.end(), [](std::string &s) {
+				if (valid_chars(s))
+					return s.length() != 3 && s.length() != 6; // Sometimes the plate is devided into numbers and letters, sometimes they end up together
+				else
+					return true;
+		}), answer_arr.end()
+	);
+
+	/* Assembly */
+	for (std::string s : answer_arr)
+		answer_parsed += s;
+
+	/* Validate final answer */
+	if (answer_parsed.length() != 6)
+		answer_parsed = ""; // Failsafe: if answer isn't valid, we shall not use it
+}
+
+std::vector<std::string> extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
 	const int width = frame.cols;
 	const int height = frame.rows;
 	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
@@ -109,17 +152,23 @@ void extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates
 				const float aspect_ratio = temp.width / (float) temp.height; // calculate aspect ration
 				return aspect_ratio < MIN_AR || aspect_ratio > MAX_AR; // if aspect ratio is outside allowed range, remove it
 				}), rectangles.end());
-	
-	std::cout << "Found " << rectangles.size() << " candidates:" << std::endl;
+
+	std::string answer;
+	std::string answer_parsed;
+	std::vector<std::string> answers;
 	for (cv::Rect rect : rectangles) {
+		answer_parsed = "";
 		cv::Range cols(rect.x * ratio_width, (rect.x + rect.width) * ratio_width);
 		cv::Range rows(rect.y * ratio_height, (rect.y + rect.height) * ratio_height);
 		cv::Mat crop = frame(rows, cols);
+		run_ocr(crop, answer);
+		parse_answer(answer, answer_parsed);
+		if (answer_parsed.length() > 0) {
+			answers.push_back(answer_parsed);
+		}
 		debug_img("crop", crop);
-
-		std::cout << run_ocr(crop) << std::endl;
 	}
-	return;
+	return answers;
 
 }
 
@@ -168,10 +217,10 @@ void debug_img(const char* name, cv::Mat &img) {
 	if (FLAGS.debug) {
 		/* Create image path */
 		std::string 	path  = "debug/";
-				path += std::to_string(debug_imgs_cnt);
-				path += "-";
-				path += name;
-				path += ".jpg";
+		path += std::to_string(debug_imgs_cnt);
+		path += "-";
+		path += name;
+		path += ".jpg";
 		imwrite(path, img);
 		debug_imgs_cnt++;
 	}
@@ -201,7 +250,7 @@ std::vector<std::vector<cv::Point>> locateCandidates(cv::Mat &frame) {
 	cv::Mat blackhatFrame;
 	cv::Mat rectangleKernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(13, 5)); // Shapes are set 13 pixels wide by 5 pixels tall
 	cv::morphologyEx(processedFrame, blackhatFrame, cv::MORPH_BLACKHAT, rectangleKernel);
-	
+
 	debug_img("morphological_opt", blackhatFrame);
 
 	// Find license plate based on whiteness property
@@ -262,3 +311,24 @@ bool compareContourAreas (std::vector<cv::Point>& contour1, std::vector<cv::Poin
 	const double j = fabs(contourArea(cv::Mat(contour2)));
 	return (i < j);
 }
+
+std::vector<std::string> _split(std::string s, std::string delimiter, bool avoid_double){
+	std::vector<std::string> output;
+
+	size_t pos = 0;
+	std::string token;
+	while ((pos = s.find(delimiter)) != std::string::npos) {
+		/* If pos is 0 we have a double delimiter and something is probably wrong */
+		if (pos == 0 && avoid_double) {
+			s.erase(0, 1);
+			continue;
+		}
+		token = s.substr(0, pos);
+		output.push_back(token);
+		s.erase(0, pos + delimiter.length());
+	}
+	// add the rest of the string to last element
+	output.push_back(s);
+	return output;
+}
+
