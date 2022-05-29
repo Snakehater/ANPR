@@ -13,7 +13,7 @@
 
 // Macros
 void debug_img(const char* name, cv::Mat &img);
-std::vector<std::string> extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
+std::vector<std::string> extract_reg(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
 std::vector<std::string> _split(std::string s, std::string delimiter, bool avoid_double);
 
 int debug_imgs_cnt = 0;
@@ -22,15 +22,17 @@ struct {
 	bool debug = false;
 } FLAGS;
 
-void run_ocr(cv::Mat input, std::string &answer) {
+void run_ocr(tesseract::TessBaseAPI *api, cv::Mat input, std::string &answer) {
 	char *outText;
 
+/*
 	tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI();
 	// Initialize tesseract-ocr with English, without specifying tessdata path
 	if (api->Init(NULL, "swe")) {
 		fprintf(stderr, "Could not initialize tesseract.\n");
 		exit(1);
 	}
+	*/
 
 	// Pass image data to tesseract
 	api->SetImage((uchar*)input.data, input.size().width, input.size().height, input.channels(), input.step1());
@@ -43,15 +45,39 @@ void run_ocr(cv::Mat input, std::string &answer) {
 	answer = outText;
 
 	// Destroy used object and release memory
-	api->End();
-	delete api;
+	//api->End();
+	//delete api;
 	delete [] outText;
 	// pixDestroy(&image);
+}
+
+void anpr(tesseract::TessBaseAPI *api, cv::Mat &image) {
+	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
+	std::vector<std::string> regs = extract_reg(api, image, candidates);
+	std::cout << "Plates found: " << std::endl;
+	for (std::string s : regs)
+		std::cout << "- " << s << std::endl;
+	drawCandidates(image, candidates);
+
+	/*j
+	  cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
+	  cv::imshow("Display Image", image);
+	  cv::waitKey(0);
+	 */
+
+	debug_img("done", image);
 }
 
 
 int main(int argc, char** argv )
 {
+	/* init tesseract */
+	tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI();
+	if (api->Init(NULL, "swe")) {
+		fprintf(stderr, "Could not initialize tesseract.\n");
+		exit(1);
+	}
+
 	if ( argc < 2 )
 	{
 		printf("usage: DisplayImage.out <Image_Path>\n");
@@ -72,21 +98,10 @@ int main(int argc, char** argv )
 		return -1;
 	}
 
-	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
-	std::vector<std::string> regs = extract_reg(image, candidates);
-	std::cout << "Plates found: " << std::endl;
-	for (std::string s : regs)
-		std::cout << "- " << s << std::endl;
-	drawCandidates(image, candidates);
+	anpr(api, image);
 
-	/*j
-	  cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
-	  cv::imshow("Display Image", image);
-	  cv::waitKey(0);
-	 */
-
-	debug_img("done", image);
-
+	api->End();
+	delete api;
 	return 0;
 }
 
@@ -131,7 +146,7 @@ void parse_answer(std::string answer, std::string &answer_parsed) {
 		answer_parsed = ""; // Failsafe: if answer isn't valid, we shall not use it
 }
 
-std::vector<std::string> extract_reg(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
+std::vector<std::string> extract_reg(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
 	const int width = frame.cols;
 	const int height = frame.rows;
 	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
@@ -161,7 +176,7 @@ std::vector<std::string> extract_reg(cv::Mat &frame, std::vector<std::vector<cv:
 		cv::Range cols(rect.x * ratio_width, (rect.x + rect.width) * ratio_width);
 		cv::Range rows(rect.y * ratio_height, (rect.y + rect.height) * ratio_height);
 		cv::Mat crop = frame(rows, cols);
-		run_ocr(crop, answer);
+		run_ocr(api, crop, answer);
 		parse_answer(answer, answer_parsed);
 		if (answer_parsed.length() > 0) {
 			answers.push_back(answer_parsed);
