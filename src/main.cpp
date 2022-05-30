@@ -18,11 +18,14 @@ struct {
 	bool debug = false;
 } FLAGS;
 
+struct {
+	int frame_w = 0;
+	int frame_h = 0;
+	float ratio_w = 0.0f;
+	float ratio_h = 0.0f;
+} FRAME_METADATA;
+
 struct Match {
-	int frame_w;
-	int frame_h;
-	float ratio_w;
-	float ratio_h;
 	cv::Rect rectangle;
 	std::string id;
 	bool id_valid;
@@ -93,7 +96,7 @@ int main(int argc, char** argv )
 	/* Process video */
 
 	cv::VideoCapture cap(argv[1]);
-	cv::Mat image;
+	cv::Mat frame;
 
 	if (!cap.isOpened()) {
 		std::cout << "Cannot open video stream or file" << std::endl;
@@ -104,9 +107,13 @@ int main(int argc, char** argv )
 
 	/* Read every frame until the end */
 	while (cap.isOpened()){
-		if (cap.read(image)) {
-			anpr(api, image, known_cars);
-			cv::imshow("Frame", image);
+		if (cap.read(frame)) {
+			if (frame.empty()) {
+				std::cerr << "Error: blank frame grabbed" << std::endl;
+				continue;
+			}
+			anpr(api, frame, known_cars);
+			cv::imshow("Frame", frame);
 		} else {
 			std::cout << "Stream is closed or video camera is disconnected" << std::endl;
 			break;
@@ -118,6 +125,8 @@ int main(int argc, char** argv )
 			break;
 		}
 	}
+	cap.release();
+	cv::destroyAllWindows();
 
 	api->End();
 	delete api;
@@ -166,10 +175,11 @@ void parse_answer(std::string answer, std::string &answer_parsed) {
 }
 
 std::vector<struct Match> extract_ids(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates, std::vector<std::string> &known_cars) {
-	const int width = frame.cols;
-	const int height = frame.rows;
-	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
-	const float ratio_height = height / (float) 512;  // Aspect ratio may affect the performance
+	FRAME_METADATA.frame_w = frame.cols;
+	FRAME_METADATA.frame_h = frame.rows;
+	FRAME_METADATA.ratio_w = frame.cols / (float) 512; // Aspect ratio may affect the performance, but will be do the job as for now
+	FRAME_METADATA.ratio_h = frame.rows / (float) 512; // Aspect ratio may affect the performance
+
 
 	// Convert to rectangle and also filter out the non-rectangle-shape.
 	std::vector<cv::Rect> rectangles;
@@ -193,16 +203,12 @@ std::vector<struct Match> extract_ids(tesseract::TessBaseAPI *api, cv::Mat &fram
 	for (cv::Rect rect : rectangles) {
 		struct Match match;
 		answer_parsed = "";
-		cv::Range cols(rect.x * ratio_width, (rect.x + rect.width) * ratio_width);
-		cv::Range rows(rect.y * ratio_height, (rect.y + rect.height) * ratio_height);
+		cv::Range cols(rect.x * FRAME_METADATA.ratio_w, (rect.x + rect.width) * FRAME_METADATA.ratio_w);
+		cv::Range rows(rect.y * FRAME_METADATA.ratio_h, (rect.y + rect.height) * FRAME_METADATA.ratio_h);
 		cv::Mat crop = frame(rows, cols);
 		run_ocr(api, crop, answer);
 		parse_answer(answer, answer_parsed);
 
-		match.frame_w = width;
-		match.frame_h = height;
-		match.ratio_w = ratio_width;
-		match.ratio_h = ratio_height;
 		match.rectangle = rect;
 		match.id = answer_parsed;
 		match.id_valid = answer_parsed.length() > 1;
@@ -234,8 +240,8 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 		}
 		cv::rectangle(
 				frame,
-				cv::Point(match.rectangle.x * match.ratio_w, match.rectangle.y * match.ratio_h),
-				cv::Point((match.rectangle.x + match.rectangle.width) * match.ratio_w, (match.rectangle.y + match.rectangle.height) * match.ratio_h),
+				cv::Point(match.rectangle.x * FRAME_METADATA.ratio_w, match.rectangle.y * FRAME_METADATA.ratio_h),
+				cv::Point((match.rectangle.x + match.rectangle.width) * FRAME_METADATA.ratio_w, (match.rectangle.y + match.rectangle.height) * FRAME_METADATA.ratio_h),
 				color,
 				3,
 				cv::LINE_8,
@@ -245,7 +251,7 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 			cv::putText(
 					frame,
 					"OK",
-					cv::Point((match.rectangle.x) * match.ratio_w, (match.rectangle.y + match.rectangle.height) * match.ratio_h),
+					cv::Point((match.rectangle.x) * FRAME_METADATA.ratio_w, (match.rectangle.y + match.rectangle.height) * FRAME_METADATA.ratio_h),
 					cv::FONT_HERSHEY_DUPLEX,
 					1.0f,
 					color,
@@ -255,10 +261,9 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 	}
 
 	// Print circles
-	int i = 0;
-	for (std::vector<cv::Point> currentCandidate : candidates) {
+	int i = 0; for (std::vector<cv::Point> currentCandidate : candidates) {
 		for (cv::Point p : currentCandidate) {
-			cv::Point new_p = cv::Point(p.x * matches[0].ratio_w, p.y * matches[0].ratio_h);
+			cv::Point new_p = cv::Point(p.x * FRAME_METADATA.ratio_w, p.y * FRAME_METADATA.ratio_h);
 			cv::Scalar color = cv::Scalar(0, (25*i)&255, (255-25*i)&255);
 			cv::circle(frame, new_p, 4, color);
 		}
