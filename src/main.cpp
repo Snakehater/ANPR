@@ -354,12 +354,16 @@ std::vector<std::vector<cv::Point>> locateCandidates(cv::Mat &frame) {
 
 	debug_img("bitwise_AND", gradX);
 
+
 	// Find contours in the thresholded image and sort by size
 	std::vector<std::vector<cv::Point>> contours;
 	cv::findContours(gradX, contours, cv::noArray(), cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 	std::sort(contours.begin(), contours.end(), compareContourAreas);
 	std::vector<std::vector<cv::Point>> top_contours;
-	top_contours.assign(contours.end() - KEEP, contours.end()); // Descending order
+	if (contours.size() > KEEP) {
+		top_contours.assign(contours.end() - KEEP, contours.end()); // Descending order
+	}
+
 
 	return top_contours;
 }
