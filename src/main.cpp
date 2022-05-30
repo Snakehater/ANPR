@@ -247,10 +247,19 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 				cv::LINE_8,
 				0
 			);
+		cv::putText(
+				frame,
+				match.id,
+				cv::Point((match.rectangle.x) * FRAME_METADATA.ratio_w, (match.rectangle.y + match.rectangle.height - 30) * FRAME_METADATA.ratio_h),
+				cv::FONT_HERSHEY_DUPLEX,
+				1.0f,
+				color,
+				2
+			);
 		if (match.id_valid && match.parking_valid) {
 			cv::putText(
 					frame,
-					"OK",
+					"OK " + match.id,
 					cv::Point((match.rectangle.x) * FRAME_METADATA.ratio_w, (match.rectangle.y + match.rectangle.height) * FRAME_METADATA.ratio_h),
 					cv::FONT_HERSHEY_DUPLEX,
 					1.0f,
