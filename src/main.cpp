@@ -225,10 +225,13 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 	// Draw the bounding box of the possible numberplate
 	for (struct Match match : matches) {
 		cv::Scalar color;
-		if (match.parking_valid)
+		if (match.parking_valid) {
 			color = cv::Scalar(0, 255, 0); // Blue Green Red, BGR
-		else
+		} else if (match.id_valid) {
 			color = cv::Scalar(0, 0, 255);
+		} else {
+			color = cv::Scalar(255, 255, 255);
+		}
 		cv::rectangle(
 				frame,
 				cv::Point(match.rectangle.x * match.ratio_w, match.rectangle.y * match.ratio_h),
@@ -238,10 +241,10 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 				cv::LINE_8,
 				0
 			);
-		if (match.id_valid) {
+		if (match.id_valid && match.parking_valid) {
 			cv::putText(
 					frame,
-					(match.parking_valid ? "OK" : "Not OK"),
+					"OK",
 					cv::Point((match.rectangle.x) * match.ratio_w, (match.rectangle.y + match.rectangle.height) * match.ratio_h),
 					cv::FONT_HERSHEY_DUPLEX,
 					1.0f,
