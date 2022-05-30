@@ -5,6 +5,7 @@
 #include <main.hpp>
 #include <tesseract/baseapi.h>
 #include <leptonica/allheaders.h>
+#include "file_handler.hpp"
 
 #define MIN_AR 1        // Minimum aspect ratio
 #define MAX_AR 6        // Maximum aspect ratio
@@ -66,17 +67,34 @@ int main(int argc, char** argv )
 		exit(1);
 	}
 
-	if ( argc < 2 )
-	{
+	if (argc < 2) {
 		std::cout << "Please pass video url" << std::endl;
-		return -1;
+		api->End();
+		delete api;
+		exit(1);
 	}
-	if (argc > 2) {
-		if (strcmp(argv[2], "--debug")) {
+	if (argc < 3) {
+		std::cout << "Please pass list of known cars" << std::endl;
+		api->End();
+		delete api;
+		exit(1);
+	}
+	if (argc > 3) {
+		if (strcmp(argv[3], "--debug")) {
 			FLAGS.debug = true;
 			std::cout << "Debug mode is on, will output debug files" << std::endl;
 		}
 	}
+	
+	/* Read ok parked cars */
+	FileHandler fileHandler(argv[2]);
+	std::vector<std::string> known_cars = fileHandler.getIDs();
+	std::cout << "Known ids are: " << std::endl;
+	for (std::string s : known_cars) {
+		std::cout << s << std::endl;
+	}
+
+	/* Process video */
 
 	cv::VideoCapture cap(argv[1]);
 	cv::Mat image;

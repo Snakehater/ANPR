@@ -17,6 +17,8 @@ target_link_libraries( main ${OpenCV_LIBS} )
 target_link_libraries( main ${TESSERACT_LIBRARIES} )
 target_link_libraries( main ${LEPTONICA_LIBRARIES} )
 
+target_sources( main PRIVATE src/file_handler.cpp )
+
 configure_file(   
     ${CMAKE_CURRENT_SOURCE_DIR}/samples/001.jpg
     ${CMAKE_CURRENT_BINARY_DIR}/samples/001.jpg
@@ -28,7 +30,7 @@ add_custom_target(build-time-make-directory ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory debug)
 
 add_custom_target(run
-    COMMAND rm -rf debug/* && ./main ../samples/002.mp4
+    COMMAND rm -rf debug/* && ./main ../samples/002.mp4 ../samples/known_cars.txt
     DEPENDS main
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
