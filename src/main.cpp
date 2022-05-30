@@ -24,7 +24,8 @@ struct Match {
 	float ratio_h;
 	cv::Rect rectangle;
 	std::string id;
-	bool id_is_valid;
+	bool id_valid;
+	bool parking_valid;
 };
 
 // Macros
@@ -51,9 +52,6 @@ void run_ocr(tesseract::TessBaseAPI *api, cv::Mat input, std::string &answer) {
 void anpr(tesseract::TessBaseAPI *api, cv::Mat &image) {
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
 	std::vector<Match> matches = extract_id(api, image, candidates);
-	std::cout << "Plates found: " << std::endl;
-	for (struct Match match : matches)
-		std::cout << "- " << match.id << std::endl;
 	drawMatches(image, matches, candidates);
 	debug_img("done", image);
 }
@@ -193,7 +191,8 @@ std::vector<struct Match> extract_id(tesseract::TessBaseAPI *api, cv::Mat &frame
 		match.ratio_h = ratio_height;
 		match.rectangle = rect;
 		match.id = answer_parsed;
-		match.id_is_valid = answer_parsed.length() > 1;
+		match.id_valid = answer_parsed.length() > 1;
+		match.parking_valid = false;
 		matches.push_back(match);
 
 		debug_img("crop", crop);
@@ -206,7 +205,7 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 	// Draw the bounding box of the possible numberplate
 	for (struct Match match : matches) {
 		cv::Scalar color;
-		if (match.id_is_valid)
+		if (match.parking_valid)
 			color = cv::Scalar(0, 255, 0); // Blue Green Red, BGR
 		else
 			color = cv::Scalar(0, 0, 255);
@@ -219,6 +218,17 @@ void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::v
 				cv::LINE_8,
 				0
 			);
+		if (match.id_valid) {
+			cv::putText(
+					frame,
+					(match.parking_valid ? "OK" : "Not OK"),
+					cv::Point((match.rectangle.x) * match.ratio_w, (match.rectangle.y + match.rectangle.height) * match.ratio_h),
+					cv::FONT_HERSHEY_DUPLEX,
+					1.0f,
+					color,
+					2
+				);
+		}
 	}
 
 	// Print circles
