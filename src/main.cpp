@@ -31,7 +31,7 @@ struct Match {
 
 // Macros
 void debug_img(const char* name, cv::Mat &img);
-std::vector<Match> extract_id(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
+std::vector<Match> extract_ids(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates, std::vector<std::string> &known_cars);
 std::vector<std::string> _split(std::string s, std::string delimiter, bool avoid_double);
 void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::vector<cv::Point>> &candidates);
 
@@ -50,9 +50,9 @@ void run_ocr(tesseract::TessBaseAPI *api, cv::Mat input, std::string &answer) {
 	delete [] outText;
 }
 
-void anpr(tesseract::TessBaseAPI *api, cv::Mat &image) {
+void anpr(tesseract::TessBaseAPI *api, cv::Mat &image, std::vector<std::string> &known_cars) {
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
-	std::vector<Match> matches = extract_id(api, image, candidates);
+	std::vector<Match> matches = extract_ids(api, image, candidates, known_cars);
 	drawMatches(image, matches, candidates);
 	debug_img("done", image);
 }
@@ -89,10 +89,6 @@ int main(int argc, char** argv )
 	/* Read ok parked cars */
 	FileHandler fileHandler(argv[2]);
 	std::vector<std::string> known_cars = fileHandler.getIDs();
-	std::cout << "Known ids are: " << std::endl;
-	for (std::string s : known_cars) {
-		std::cout << s << std::endl;
-	}
 
 	/* Process video */
 
@@ -109,7 +105,7 @@ int main(int argc, char** argv )
 	/* Read every frame until the end */
 	while (cap.isOpened()){
 		if (cap.read(image)) {
-			anpr(api, image);
+			anpr(api, image, known_cars);
 			cv::imshow("Frame", image);
 		} else {
 			std::cout << "Stream is closed or video camera is disconnected" << std::endl;
@@ -169,7 +165,7 @@ void parse_answer(std::string answer, std::string &answer_parsed) {
 		answer_parsed = ""; // Failsafe: if answer isn't valid, we shall not use it
 }
 
-std::vector<struct Match> extract_id(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
+std::vector<struct Match> extract_ids(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates, std::vector<std::string> &known_cars) {
 	const int width = frame.cols;
 	const int height = frame.rows;
 	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
@@ -211,6 +207,12 @@ std::vector<struct Match> extract_id(tesseract::TessBaseAPI *api, cv::Mat &frame
 		match.id = answer_parsed;
 		match.id_valid = answer_parsed.length() > 1;
 		match.parking_valid = false;
+		for (std::string s : known_cars) {
+			if (strcmp(s.c_str(), answer_parsed.c_str()) == 0) {
+				match.parking_valid = true;
+				break;
+			}
+		}
 		matches.push_back(match);
 
 		debug_img("crop", crop);
