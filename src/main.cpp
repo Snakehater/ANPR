@@ -11,60 +11,50 @@
 #define KEEP 5          // Limit the number of license plates
 #define RECT_DIFF 2000  // Set the difference between contour and rectangle
 
-// Macros
-void debug_img(const char* name, cv::Mat &img);
-std::vector<std::string> extract_reg(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
-std::vector<std::string> _split(std::string s, std::string delimiter, bool avoid_double);
-
 int debug_imgs_cnt = 0;
 
 struct {
 	bool debug = false;
 } FLAGS;
 
+struct Match {
+	int frame_w;
+	int frame_h;
+	float ratio_w;
+	float ratio_h;
+	cv::Rect rectangle;
+	std::string id;
+	bool id_is_valid;
+};
+
+// Macros
+void debug_img(const char* name, cv::Mat &img);
+std::vector<Match> extract_id(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates);
+std::vector<std::string> _split(std::string s, std::string delimiter, bool avoid_double);
+void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::vector<cv::Point>> &candidates);
+
+/* Code */
 void run_ocr(tesseract::TessBaseAPI *api, cv::Mat input, std::string &answer) {
 	char *outText;
-
-/*
-	tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI();
-	// Initialize tesseract-ocr with English, without specifying tessdata path
-	if (api->Init(NULL, "swe")) {
-		fprintf(stderr, "Could not initialize tesseract.\n");
-		exit(1);
-	}
-	*/
 
 	// Pass image data to tesseract
 	api->SetImage((uchar*)input.data, input.size().width, input.size().height, input.channels(), input.step1());
 
-	// Open input image with leptonica library
-	// Pix *image = pixRead("debug/13-crop.jpg");
-	// api->SetImage(image);
 	// Get OCR result
 	outText = api->GetUTF8Text();
 	answer = outText;
 
-	// Destroy used object and release memory
-	//api->End();
-	//delete api;
+	// Release memory
 	delete [] outText;
-	// pixDestroy(&image);
 }
 
 void anpr(tesseract::TessBaseAPI *api, cv::Mat &image) {
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
-	std::vector<std::string> regs = extract_reg(api, image, candidates);
+	std::vector<Match> matches = extract_id(api, image, candidates);
 	std::cout << "Plates found: " << std::endl;
-	for (std::string s : regs)
-		std::cout << "- " << s << std::endl;
-	drawCandidates(image, candidates);
-
-	/*j
-	  cv::namedWindow("Display Image", cv::WINDOW_AUTOSIZE );
-	  cv::imshow("Display Image", image);
-	  cv::waitKey(0);
-	 */
-
+	for (struct Match match : matches)
+		std::cout << "- " << match.id << std::endl;
+	drawMatches(image, matches, candidates);
 	debug_img("done", image);
 }
 
@@ -163,7 +153,7 @@ void parse_answer(std::string answer, std::string &answer_parsed) {
 		answer_parsed = ""; // Failsafe: if answer isn't valid, we shall not use it
 }
 
-std::vector<std::string> extract_reg(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
+std::vector<struct Match> extract_id(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
 	const int width = frame.cols;
 	const int height = frame.rows;
 	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
@@ -187,57 +177,55 @@ std::vector<std::string> extract_reg(tesseract::TessBaseAPI *api, cv::Mat &frame
 
 	std::string answer;
 	std::string answer_parsed;
-	std::vector<std::string> answers;
+	std::vector<struct Match> matches;
 	for (cv::Rect rect : rectangles) {
+		struct Match match;
 		answer_parsed = "";
 		cv::Range cols(rect.x * ratio_width, (rect.x + rect.width) * ratio_width);
 		cv::Range rows(rect.y * ratio_height, (rect.y + rect.height) * ratio_height);
 		cv::Mat crop = frame(rows, cols);
 		run_ocr(api, crop, answer);
 		parse_answer(answer, answer_parsed);
-		if (answer_parsed.length() > 0) {
-			answers.push_back(answer_parsed);
-		}
+
+		match.frame_w = width;
+		match.frame_h = height;
+		match.ratio_w = ratio_width;
+		match.ratio_h = ratio_height;
+		match.rectangle = rect;
+		match.id = answer_parsed;
+		match.id_is_valid = answer_parsed.length() > 1;
+		matches.push_back(match);
+
 		debug_img("crop", crop);
 	}
-	return answers;
-
+	return matches;
 }
 
-void drawCandidates(cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates) {
-	const int width = frame.cols;
-	const int height = frame.rows;
-	const float ratio_width = width / (float) 512;    // Aspect ratio may affect the performance, but will be do the job as for now
-	const float ratio_height = height / (float) 512;  // Aspect ratio may affect the performance
-
-	// Convert to rectangle and also filter out the non-rectangle-shape.
-	std::vector<cv::Rect> rectangles;
-	for (std::vector<cv::Point> currentCandidate : candidates) {
-		cv::Rect boundingRect = cv::boundingRect(currentCandidate); // Create a rect around our candidate
-		float difference = boundingRect.area() - cv::contourArea(currentCandidate); // Get the difference in area between bouding rect and the area of the countour of the candidate
-		if (difference < RECT_DIFF) { // If those two areas are similar enough, candidate is probably a rectangle
-			rectangles.push_back(boundingRect); // Add it to possible number plates
-		}
-	}
-
-	// Remove rectangle with wrong aspect ratio.
-	rectangles.erase(std::remove_if(rectangles.begin(), rectangles.end(), [](cv::Rect temp) {
-				const float aspect_ratio = temp.width / (float) temp.height; // calculate aspect ration
-				return aspect_ratio < MIN_AR || aspect_ratio > MAX_AR; // if aspect ratio is outside allowed range, remove it
-				}), rectangles.end());
-
+void drawMatches(cv::Mat &frame, std::vector<Match> &matches, std::vector<std::vector<cv::Point>> &candidates) {
 
 	// Draw the bounding box of the possible numberplate
-	for (cv::Rect rectangle : rectangles) {
-		cv::Scalar color = cv::Scalar(255, 0, 0); // Blue Green Red, BGR
-		cv::rectangle(frame, cv::Point(rectangle.x * ratio_width, rectangle.y * ratio_height), cv::Point((rectangle.x + rectangle.width) * ratio_width, (rectangle.y + rectangle.height) * ratio_height), color, 3, cv::LINE_8, 0);
+	for (struct Match match : matches) {
+		cv::Scalar color;
+		if (match.id_is_valid)
+			color = cv::Scalar(0, 255, 0); // Blue Green Red, BGR
+		else
+			color = cv::Scalar(0, 0, 255);
+		cv::rectangle(
+				frame,
+				cv::Point(match.rectangle.x * match.ratio_w, match.rectangle.y * match.ratio_h),
+				cv::Point((match.rectangle.x + match.rectangle.width) * match.ratio_w, (match.rectangle.y + match.rectangle.height) * match.ratio_h),
+				color,
+				3,
+				cv::LINE_8,
+				0
+			);
 	}
 
 	// Print circles
 	int i = 0;
 	for (std::vector<cv::Point> currentCandidate : candidates) {
 		for (cv::Point p : currentCandidate) {
-			cv::Point new_p = cv::Point(p.x * ratio_width, p.y * ratio_height);
+			cv::Point new_p = cv::Point(p.x * matches[0].ratio_w, p.y * matches[0].ratio_h);
 			cv::Scalar color = cv::Scalar(0, (25*i)&255, (255-25*i)&255);
 			cv::circle(frame, new_p, 4, color);
 		}
