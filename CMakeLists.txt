@@ -28,7 +28,7 @@ add_custom_target(build-time-make-directory ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory debug)
 
 add_custom_target(run
-    COMMAND rm -rf debug/* && ./main ../samples/002.jpg --verbose
+    COMMAND rm -rf debug/* && ./main ../samples/002.mp4
     DEPENDS main
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )

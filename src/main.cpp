@@ -80,7 +80,7 @@ int main(int argc, char** argv )
 
 	if ( argc < 2 )
 	{
-		printf("usage: DisplayImage.out <Image_Path>\n");
+		std::cout << "Please pass video url" << std::endl;
 		return -1;
 	}
 	if (argc > 2) {
@@ -89,16 +89,33 @@ int main(int argc, char** argv )
 			std::cout << "Debug mode is on, will output debug files" << std::endl;
 		}
 	}
+
+	cv::VideoCapture cap(argv[1]);
 	cv::Mat image;
 
-	image = cv::imread( argv[1], 1 );
-	if ( !image.data )
-	{
-		printf("No image data \n");
-		return -1;
+	if (!cap.isOpened()) {
+		std::cout << "Cannot open video stream or file" << std::endl;
+	} else {
+		std::cout << "fps: " << cap.get(cv::CAP_PROP_FPS);
+		std::cout << "frame count: " << cap.get(cv::CAP_PROP_FRAME_COUNT);
 	}
 
-	anpr(api, image);
+	/* Read every frame until the end */
+	while (cap.isOpened()){
+		if (cap.read(image)) {
+			anpr(api, image);
+			cv::imshow("Frame", image);
+		} else {
+			std::cout << "Stream is closed or video camera is disconnected" << std::endl;
+			break;
+		}
+
+		// wait 20ms or until q is pressed, if q is pressed, break
+		if (cv::waitKey(20) == 'q') {
+			std::cout << "Sigkill received, exiting now..." << std::endl;
+			break;
+		}
+	}
 
 	api->End();
 	delete api;
