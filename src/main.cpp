@@ -53,11 +53,16 @@ void run_ocr(tesseract::TessBaseAPI *api, cv::Mat input, std::string &answer) {
 	delete [] outText;
 }
 
-void anpr(tesseract::TessBaseAPI *api, cv::Mat &image, std::vector<std::string> &known_cars) {
+bool anpr(tesseract::TessBaseAPI *api, cv::Mat &image, std::vector<std::string> &known_cars) {
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
 	std::vector<Match> matches = extract_ids(api, image, candidates, known_cars);
 	drawMatches(image, matches, candidates);
 	debug_img("done", image);
+	for (struct Match match : matches) {
+		if (match.parking_valid)
+			return true;
+	}
+	return false;
 }
 
 
@@ -97,6 +102,7 @@ int main(int argc, char** argv )
 
 	cv::VideoCapture cap(argv[1]);
 	cv::Mat frame;
+	bool found_valid = false;
 
 	if (!cap.isOpened()) {
 		std::cout << "Cannot open video stream or file" << std::endl;
@@ -112,7 +118,7 @@ int main(int argc, char** argv )
 				std::cerr << "Error: blank frame grabbed" << std::endl;
 				continue;
 			}
-			anpr(api, frame, known_cars);
+			found_valid = anpr(api, frame, known_cars);
 			cv::imshow("Frame", frame);
 		} else {
 			std::cout << "Stream is closed or video camera is disconnected" << std::endl;
@@ -120,7 +126,7 @@ int main(int argc, char** argv )
 		}
 
 		// wait 20ms or until q is pressed, if q is pressed, break
-		if (cv::waitKey(20) == 'q') {
+		if (cv::waitKey(20 * (found_valid ? 10 : 1)) == 'q') {
 			std::cout << "Sigkill received, exiting now..." << std::endl;
 			break;
 		}
