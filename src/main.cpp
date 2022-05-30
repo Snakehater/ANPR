@@ -5,6 +5,7 @@
 #include <main.hpp>
 #include <tesseract/baseapi.h>
 #include <leptonica/allheaders.h>
+#include <chrono>
 #include "file_handler.hpp"
 
 #define MIN_AR 1        // Minimum aspect ratio
@@ -102,7 +103,9 @@ int main(int argc, char** argv )
 
 	cv::VideoCapture cap(argv[1]);
 	cv::Mat frame;
-	bool found_valid = false;
+	bool park_valid = false;
+	auto start = std::chrono::steady_clock::now();
+	auto end = start;
 
 	if (!cap.isOpened()) {
 		std::cout << "Cannot open video stream or file" << std::endl;
@@ -113,20 +116,29 @@ int main(int argc, char** argv )
 
 	/* Read every frame until the end */
 	while (cap.isOpened()){
+		/* Capture time point */
+		start = std::chrono::steady_clock::now();
+
+		/* Get and handle frame */
 		if (cap.read(frame)) {
 			if (frame.empty()) {
 				std::cerr << "Error: blank frame grabbed" << std::endl;
 				continue;
 			}
-			found_valid = anpr(api, frame, known_cars);
+			park_valid = anpr(api, frame, known_cars);
 			cv::imshow("Frame", frame);
 		} else {
 			std::cout << "Stream is closed or video camera is disconnected" << std::endl;
 			break;
 		}
 
+		/* Capture time point */
+		end = std::chrono::steady_clock::now();
+
+		std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms per frame" << std::endl;
+
 		// wait 20ms or until q is pressed, if q is pressed, break
-		if (cv::waitKey(20 * (found_valid ? 10 : 1)) == 'q') {
+		if (cv::waitKey(20 * (park_valid ? 10 : 1)) == 'q') {
 			std::cout << "Sigkill received, exiting now..." << std::endl;
 			break;
 		}
