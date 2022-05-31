@@ -33,6 +33,11 @@ struct Match {
 	bool parking_valid;
 };
 
+struct {
+	bool parking_valid;
+	bool id_valid;
+} anprResult;
+
 // Macros
 void debug_img(const char* name, cv::Mat &img);
 std::vector<Match> extract_ids(tesseract::TessBaseAPI *api, cv::Mat &frame, std::vector<std::vector<cv::Point>> &candidates, std::vector<std::string> &known_cars);
@@ -54,16 +59,19 @@ void run_ocr(tesseract::TessBaseAPI *api, cv::Mat input, std::string &answer) {
 	delete [] outText;
 }
 
-bool anpr(tesseract::TessBaseAPI *api, cv::Mat &image, std::vector<std::string> &known_cars) {
+void anpr(tesseract::TessBaseAPI *api, cv::Mat &image, std::vector<std::string> &known_cars) {
 	std::vector<std::vector<cv::Point>> candidates = locateCandidates(image);
 	std::vector<Match> matches = extract_ids(api, image, candidates, known_cars);
 	drawMatches(image, matches, candidates);
 	debug_img("done", image);
+	anprResult.parking_valid	= false;
+	anprResult.id_valid		= false;
 	for (struct Match match : matches) {
 		if (match.parking_valid)
-			return true;
+			anprResult.parking_valid = true;
+		if (match.id_valid)
+			anprResult.id_valid = true;
 	}
-	return false;
 }
 
 
@@ -103,9 +111,10 @@ int main(int argc, char** argv )
 
 	cv::VideoCapture cap(argv[1]);
 	cv::Mat frame;
-	bool park_valid = false;
 	auto start = std::chrono::steady_clock::now();
 	auto end = start;
+	int number_of_test = 0;
+	int valid_tests = 0;
 
 	if (!cap.isOpened()) {
 		std::cout << "Cannot open video stream or file" << std::endl;
@@ -125,7 +134,10 @@ int main(int argc, char** argv )
 				std::cerr << "Error: blank frame grabbed" << std::endl;
 				continue;
 			}
-			park_valid = anpr(api, frame, known_cars);
+			anpr(api, frame, known_cars);
+			if (anprResult.id_valid)
+				valid_tests++;
+			number_of_test++;
 			cv::imshow("Frame", frame);
 		} else {
 			std::cout << "Stream is closed or video camera is disconnected" << std::endl;
@@ -138,13 +150,15 @@ int main(int argc, char** argv )
 		std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms per frame" << std::endl;
 
 		// wait 20ms or until q is pressed, if q is pressed, break
-		if (cv::waitKey(20 * (park_valid ? 10 : 1)) == 'q') {
+		if (cv::waitKey(20 * (anprResult.parking_valid ? 10 : 1)) == 'q') {
 			std::cout << "Sigkill received, exiting now..." << std::endl;
 			break;
 		}
 	}
 	cap.release();
 	cv::destroyAllWindows();
+
+	std::cout << "Valid id was found on " << (float)valid_tests/(float)number_of_test*100.0f << "% of the frames." << std::endl;
 
 	api->End();
 	delete api;
